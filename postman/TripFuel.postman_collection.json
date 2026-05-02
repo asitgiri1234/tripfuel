@@ -1,0 +1,58 @@
+{
+  "info": {
+    "name": "TripFuel API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Route + fuel plan (coordinates)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_latitude\": 41.8781,\n  \"start_longitude\": -87.6298,\n  \"end_latitude\": 39.7392,\n  \"end_longitude\": -104.9903,\n  \"max_off_route_miles\": 15\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "route"]
+        },
+        "description": "USA coordinates only. Uses exactly one OSRM routing HTTP request."
+      }
+    },
+    {
+      "name": "Route + fuel plan (addresses)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start_address\": \"Chicago, IL\",\n  \"end_address\": \"Denver, CO\",\n  \"max_off_route_miles\": 15\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/route/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "route"]
+        },
+        "description": "Adds two Nominatim geocoding requests + one OSRM route request (3 external HTTP calls total)."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    }
+  ]
+}
