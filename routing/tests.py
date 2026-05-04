@@ -250,6 +250,46 @@ class SimulateFuelJourneyTests(TestCase):
         self.assertEqual(result.total_gallons_purchased, 50.0)
         self.assertEqual(result.total_cost_usd, 210.0)
 
+    def test_fallback_reaches_station_slightly_beyond_range(self):
+        """
+        Start -> A(520,$4.00) -> End(1000).
+        A is 520 miles away, beyond the normal 500-mile range but within the
+        50-mile fallback buffer. The algorithm should stretch to reach it.
+        """
+        nodes = (
+            _node(0, kind="start", name="Start"),
+            _node(520, 4.0, name="A"),
+            _node(1000, kind="end", name="End"),
+        )
+        result = simulate_fuel_journey(
+            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+        )
+        # Start -> A: 520 mi, consume 52 gal (only have 50, fallback allows it).
+        # Arrive at A with 0 gal.
+        # At A: end is 480 mi away, within 500. Buy 48 gal @ $4.00.
+        self.assertEqual(len(result.purchases), 1)
+        p = result.purchases[0]
+        self.assertEqual(p.station_name, "A")
+        self.assertEqual(p.gallons, 48.0)
+        self.assertEqual(p.cost_usd, 192.0)
+        self.assertEqual(p.reason, "partial_fill_for_end")
+
+    def test_fallback_buffer_exceeded_still_raises(self):
+        """
+        Start -> A(600,$4.00) -> End(1200).
+        A is 600 miles away, beyond the 550-mile fallback buffer. Should raise.
+        """
+        nodes = (
+            _node(0, kind="start", name="Start"),
+            _node(600, 4.0, name="A"),
+            _node(1200, kind="end", name="End"),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            simulate_fuel_journey(
+                nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            )
+        self.assertIn("Nearest station is 600.0 miles ahead", str(ctx.exception))
+
     def test_unreachable_route_raises(self):
         """
         Start -> A(600,$4.00) -> End(1200).

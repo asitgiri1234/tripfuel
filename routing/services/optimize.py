@@ -9,6 +9,7 @@ from routing.services.fuel_stations import FuelStation
 logger = logging.getLogger(__name__)
 
 EPS = 1e-9
+FALLBACK_BUFFER_MILES = 50.0  # allow travel slightly beyond rated max range
 
 
 @dataclass(frozen=True)
@@ -283,21 +284,59 @@ def simulate_fuel_journey(
         )
 
         max_reach_now = cur_mile + fuel_gallons * mpg
+        used_fallback = False
         if end_mile <= max_reach_now + EPS:
             # End is reachable -- head straight for it.
             target_idx = end_idx
         else:
             if not reachable_stations:
-                raise ValueError("No station is reachable within remaining fuel range.")
-            # Greedy move: among all reachable stations, pick the cheapest price.
-            target_idx = min(
-                reachable_stations,
-                key=lambda i: float(nodes[i].price_per_gallon or float("inf")),
-            )
+                # --------------------------------------------------------------
+                # FALLBACK: no station is reachable with the fuel currently in
+                # the tank. Look for the nearest station ahead, even if it is
+                # slightly beyond the vehicle's rated max range.
+                # --------------------------------------------------------------
+                nearest_forward_idx: Optional[int] = None
+                nearest_forward_distance = float("inf")
+                for idx in range(current_index + 1, len(nodes)):
+                    n = nodes[idx]
+                    if n.kind == "station":
+                        dist = float(n.mile - cur_mile)
+                        if dist < nearest_forward_distance:
+                            nearest_forward_distance = dist
+                            nearest_forward_idx = idx
+
+                if nearest_forward_idx is not None:
+                    max_range_with_fallback = (
+                        tank_capacity_gallons * mpg + FALLBACK_BUFFER_MILES
+                    )
+                    if nearest_forward_distance <= max_range_with_fallback + EPS:
+                        logger.warning(
+                            "[FUEL FALLBACK] No station reachable within normal range. "
+                            "Selecting nearest forward station at %.2f mi (buffer: %.2f mi).",
+                            nearest_forward_distance,
+                            FALLBACK_BUFFER_MILES,
+                        )
+                        target_idx = nearest_forward_idx
+                        used_fallback = True
+                    else:
+                        raise ValueError(
+                            f"No station reachable within remaining fuel range. "
+                            f"Nearest station is {nearest_forward_distance:.1f} miles ahead."
+                        )
+                else:
+                    raise ValueError(
+                        "No station is reachable within remaining fuel range."
+                    )
+            else:
+                # Greedy move: among all reachable stations, pick the cheapest price.
+                target_idx = min(
+                    reachable_stations,
+                    key=lambda i: float(nodes[i].price_per_gallon or float("inf")),
+                )
 
         travel = float(nodes[target_idx].mile - cur_mile)
         required = travel / mpg
-        if required > fuel_gallons + EPS:
+        if not used_fallback and required > fuel_gallons + EPS:
             raise ValueError("Insufficient fuel to reach selected next stop.")
 
         fuel_gallons = max(0.0, fuel_gallons - required)

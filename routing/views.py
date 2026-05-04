@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List
 
 import requests
@@ -14,6 +15,8 @@ from routing.services.geocode import geocode_nominatim
 from routing.services.optimize import build_route_nodes, optimize_fuel_stops
 from routing.services.osrm import fetch_route_osrm
 from routing.validators import in_usa
+
+logger = logging.getLogger(__name__)
 
 
 class TripFuelRouteView(APIView):
@@ -71,31 +74,53 @@ class TripFuelRouteView(APIView):
         distance_miles = route.distance_meters / 1609.344
 
         corridor = float(data.get("max_off_route_miles", 15.0))
-        nearby = stations_near_polyline(
-            coords,
-            total_route_miles=distance_miles,
-            max_off_route_miles=corridor,
-        )
+        max_corridor = 100.0
+        step = 20.0
+        current_corridor = corridor
+        nearby: list = []
+        opt = None
+        last_error: Exception | None = None
 
-        nodes = build_route_nodes(
-            start_lon,
-            start_lat,
-            end_lon,
-            end_lat,
-            distance_miles,
-            nearby,
-        )
-
-        try:
-            opt = optimize_fuel_stops(
-                nodes,
-                max_range_miles=float(settings.VEHICLE_RANGE_MILES),
-                mpg=float(settings.VEHICLE_MPG),
+        while current_corridor <= max_corridor:
+            nearby = stations_near_polyline(
+                coords,
+                total_route_miles=distance_miles,
+                max_off_route_miles=current_corridor,
             )
-        except Exception as exc:
+            nodes = build_route_nodes(
+                start_lon,
+                start_lat,
+                end_lon,
+                end_lat,
+                distance_miles,
+                nearby,
+            )
+            try:
+                opt = optimize_fuel_stops(
+                    nodes,
+                    max_range_miles=float(settings.VEHICLE_RANGE_MILES),
+                    mpg=float(settings.VEHICLE_MPG),
+                )
+                if current_corridor > corridor:
+                    logger.info(
+                        "[FUEL FALLBACK] Increased search radius to %.1f miles to find feasible stations.",
+                        current_corridor,
+                    )
+                break
+            except ValueError as exc:
+                last_error = exc
+                if current_corridor >= max_corridor:
+                    break
+                current_corridor += step
+            except Exception as exc:
+                # Non-reachability error; fail immediately
+                last_error = exc
+                break
+
+        if opt is None:
             return Response(
                 {
-                    "detail": str(exc),
+                    "detail": str(last_error),
                     "hint": "Try increasing max_off_route_miles slightly or adding more stations to data/fuel_prices.csv.",
                 },
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
