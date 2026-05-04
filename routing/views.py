@@ -136,10 +136,28 @@ class TripFuelRouteView(APIView):
                         "price_per_gallon_usd": p.price_per_gallon,
                         "gallons": p.gallons,
                         "cost_usd": p.cost_usd,
+                        "reason": p.reason,
                     }
                     for p in opt.purchases
                 ],
             },
+            "summary": {
+                "total_distance_miles": round(distance_miles, 3),
+                "total_cost_usd": total_cost,
+                "total_gallons": gallons_from_purchases,
+                "number_of_stops": len(opt.purchases),
+            },
+            "fuel_stops": [
+                {
+                    "latitude": p.latitude,
+                    "longitude": p.longitude,
+                    "price_per_gallon": p.price_per_gallon,
+                    "gallons_purchased": p.gallons,
+                    "cost": p.cost_usd,
+                    "reason": p.reason,
+                }
+                for p in opt.purchases
+            ],
             "map": {
                 "geojson": geojson,
                 "openstreetmap": {
@@ -181,6 +199,7 @@ class TripFuelRouteView(APIView):
                         "cost_usd": p.cost_usd,
                         "price_per_gallon_usd": p.price_per_gallon,
                         "mile_marker": p.mile_marker,
+                        "reason": p.reason,
                     },
                     "geometry": {"type": "Point", "coordinates": [p.longitude, p.latitude]},
                 }
