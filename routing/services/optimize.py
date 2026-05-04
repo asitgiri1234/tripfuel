@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from routing.services.fuel_stations import FuelStation
+
+logger = logging.getLogger(__name__)
 
 EPS = 1e-9
 
@@ -302,6 +305,16 @@ def simulate_fuel_journey(
 
     total_gallons = round(sum(p.gallons for p in purchases), 3)
     total_cost = round(sum(p.cost_usd for p in purchases), 2)
+
+    expected_fuel = end_mile / mpg
+    logger.info(
+        "[FUEL DEBUG] total_distance=%.2f mi | expected_fuel=%.3f gal | "
+        "total_gallons_purchased=%.3f gal",
+        end_mile,
+        expected_fuel,
+        total_gallons,
+    )
+
     return OptimizeResult(
         total_cost_usd=total_cost,
         total_gallons_purchased=total_gallons,
