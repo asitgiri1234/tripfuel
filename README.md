@@ -5,10 +5,10 @@ Driving route + **minimum-money refueling plan** for trips inside the USA.
 - **Routing / map geometry**: [OSRM public demo server](https://router.project-osrm.org/) — **one HTTP GET** per coordinate-based request (`geometries=geojson&overview=full`).
 - **Optional geocoding**: [Nominatim](https://nominatim.org/) — **two HTTP GETs** when you send `start_address` / `end_address` (USA-only validation after geocode).
 - **Fuel prices**: load from `data/fuel_prices.csv` (replace with your provided attachment; supports `latitude`/`longitude`/`price_per_gallon` plus optional `name`).
-- **Vehicle**: **500 miles** max range, **10 MPG**, **50-gallon tank**, starts with a full tank.
+- **Vehicle**: **500 miles** max range, **10 MPG**, **50-gallon tank**, starts with **40% fuel (20 gallons / 200 miles)**.
 - **Fuel optimizer**: Greedy look-ahead algorithm with **partial refueling** — buys only enough fuel to reach a cheaper station ahead, or fills to capacity when no cheaper station exists.
 - **Adaptive search radius**: if no feasible stations are found with the default corridor, the backend automatically expands the off-route search radius up to **100 miles**.
-- **Fallback logic**: when gaps between stations exceed the vehicle's range, the algorithm stretches to the nearest forward station within a **50-mile buffer** rather than crashing.
+- **Robust fallback**: when gaps between stations exceed the vehicle's current fuel range, the algorithm tries progressively larger buffers (**20 → 40 → 60 → 80 → 100 miles**) and ultimately selects the nearest forward station regardless of distance. The system **never crashes** due to sparse station coverage.
 
 ## Setup
 
@@ -40,10 +40,10 @@ $env:TRIPFUEL_NOMINATIM_EMAIL="you@example.com"
 4. **Movement** — after refueling, move to the cheapest reachable station (or the end if reachable).
 
 **Sparse-dataset fallback**
-- If no station is reachable with the fuel currently in the tank, the algorithm scans ahead for the nearest forward station.
-- If that station lies within **rated max range + 50 miles**, the vehicle is allowed to stretch to it and a warning is logged.
-- If the nearest station is beyond even the fallback buffer, a descriptive error is returned so the caller knows how large the gap is.
-- The API layer also retries the station search with an increasingly wide corridor (up to 100 miles) before giving up.
+- If no station is reachable with the fuel currently in the tank, the algorithm retries with progressively larger reachability buffers: **20, 40, 60, 80, 100 miles**.
+- If still no station is reachable, the nearest forward station is selected **regardless of distance** so the trip always completes.
+- The API layer also retries the station search with an increasingly wide off-route corridor (up to 100 miles) before falling back to the optimizer's nearest-station logic.
+- The API filters out any stops where `gallons_purchased <= 0` so only real refueling events appear in the response.
 
 Key functions:
 - `get_reachable_stations()` — stations ahead within current fuel range (no backtracking).
@@ -85,7 +85,7 @@ Key functions:
   - `full_fill_no_cheaper_ahead` — tank filled because all remaining stations are more expensive.
   - `partial_fill_for_end` — bought only enough fuel to reach the destination directly.
 - `map.geojson`: GeoJSON `FeatureCollection` with the route `LineString` and `Point` features for each fuel purchase.
-- `fuel.total_money_spent_usd`: sum of purchases along the route (starts with a full tank; only **paid** stops count).
+- `fuel.total_money_spent_usd`: sum of purchases along the route (starts with a partial tank; only **paid** stops count).
 - `fuel.trip_gallons_at_mpg`: total gallons implied by **distance ÷ 10 MPG** for the returned route.
 - `external_api_usage`: counts OSRM / Nominatim HTTP requests for this call.
 
@@ -104,4 +104,4 @@ Covers reachability, look-ahead price scanning, fuel calculations, and full jour
 - Show Postman `POST /api/v1/route/` with coordinates and expand `summary` + `fuel_stops`.
 - Mention OSRM single call, CSV-driven prices, and the greedy look-ahead optimizer in `routing/services/optimize.py`.
 - Highlight partial-refuel decisions (`partial_fill_for_cheaper_station` vs `full_fill_no_cheaper_ahead` vs `partial_fill_for_end`).
-- Demonstrate the fallback by using a sparse route where the next station is slightly beyond the 500-mile rated range (e.g., 520 miles) — the optimizer will still complete the trip.
+- Demonstrate the robust fallback by using a sparse route where the next station is well beyond the 200-mile initial range — the optimizer will expand buffers and still complete the trip without crashing.
