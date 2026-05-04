@@ -7,6 +7,8 @@ Driving route + **minimum-money refueling plan** for trips inside the USA.
 - **Fuel prices**: load from `data/fuel_prices.csv` (replace with your provided attachment; supports `latitude`/`longitude`/`price_per_gallon` plus optional `name`).
 - **Vehicle**: **500 miles** max range, **10 MPG**, **50-gallon tank**, starts with a full tank.
 - **Fuel optimizer**: Greedy look-ahead algorithm with **partial refueling** — buys only enough fuel to reach a cheaper station ahead, or fills to capacity when no cheaper station exists.
+- **Adaptive search radius**: if no feasible stations are found with the default corridor, the backend automatically expands the off-route search radius up to **100 miles**.
+- **Fallback logic**: when gaps between stations exceed the vehicle's range, the algorithm stretches to the nearest forward station within a **50-mile buffer** rather than crashing.
 
 ## Setup
 
@@ -36,6 +38,12 @@ $env:TRIPFUEL_NOMINATIM_EMAIL="you@example.com"
    - If no cheaper station exists ahead and the end is within range → buy **only enough fuel to finish**.
    - If no cheaper station exists and the end is beyond range → **fill the tank** and drive to the cheapest reachable station.
 4. **Movement** — after refueling, move to the cheapest reachable station (or the end if reachable).
+
+**Sparse-dataset fallback**
+- If no station is reachable with the fuel currently in the tank, the algorithm scans ahead for the nearest forward station.
+- If that station lies within **rated max range + 50 miles**, the vehicle is allowed to stretch to it and a warning is logged.
+- If the nearest station is beyond even the fallback buffer, a descriptive error is returned so the caller knows how large the gap is.
+- The API layer also retries the station search with an increasingly wide corridor (up to 100 miles) before giving up.
 
 Key functions:
 - `get_reachable_stations()` — stations ahead within current fuel range (no backtracking).
@@ -89,10 +97,11 @@ Import `postman/TripFuel.postman_collection.json` for ready-made requests.
 python manage.py test routing.tests
 ```
 
-Covers reachability, look-ahead price scanning, fuel calculations, and full journey simulations including edge cases such as unreachable routes and partial fills for the destination.
+Covers reachability, look-ahead price scanning, fuel calculations, and full journey simulations including edge cases such as unreachable routes, partial fills for the destination, and fallback handling for stations slightly beyond normal range.
 
 ## Notes for reviewers / Loom demo
 
 - Show Postman `POST /api/v1/route/` with coordinates and expand `summary` + `fuel_stops`.
 - Mention OSRM single call, CSV-driven prices, and the greedy look-ahead optimizer in `routing/services/optimize.py`.
 - Highlight partial-refuel decisions (`partial_fill_for_cheaper_station` vs `full_fill_no_cheaper_ahead` vs `partial_fill_for_end`).
+- Demonstrate the fallback by using a sparse route where the next station is slightly beyond the 500-mile rated range (e.g., 520 miles) — the optimizer will still complete the trip.
