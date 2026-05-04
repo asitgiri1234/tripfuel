@@ -100,6 +100,7 @@ class TripFuelRouteView(APIView):
                     nodes,
                     max_range_miles=float(settings.VEHICLE_RANGE_MILES),
                     mpg=float(settings.VEHICLE_MPG),
+                    initial_fuel_gallons=float(settings.VEHICLE_INITIAL_FUEL_GALLONS),
                 )
                 if current_corridor > corridor:
                     logger.info(
@@ -146,7 +147,9 @@ class TripFuelRouteView(APIView):
             "vehicle": {
                 "miles_per_gallon": float(settings.VEHICLE_MPG),
                 "max_range_miles": float(settings.VEHICLE_RANGE_MILES),
-                "assumption": "Start with a full tank; spend counts fuel bought along the route.",
+                "tank_capacity_gallons": float(settings.VEHICLE_RANGE_MILES) / float(settings.VEHICLE_MPG),
+                "initial_fuel_gallons": float(settings.VEHICLE_INITIAL_FUEL_GALLONS),
+                "assumption": "Start with a partial tank; spend counts fuel bought along the route.",
             },
             "fuel": {
                 "total_money_spent_usd": total_cost,
@@ -170,6 +173,7 @@ class TripFuelRouteView(APIView):
                 "total_distance_miles": round(distance_miles, 3),
                 "total_cost_usd": total_cost,
                 "total_gallons": gallons_from_purchases,
+                "initial_fuel_gallons": float(settings.VEHICLE_INITIAL_FUEL_GALLONS),
                 "number_of_stops": len(opt.purchases),
             },
             "fuel_stops": [

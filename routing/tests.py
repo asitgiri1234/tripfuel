@@ -12,6 +12,7 @@ from routing.services.optimize import (
 # Vehicle constants used throughout tests
 MPG = 10.0
 TANK_GALLONS = 50.0  # 500 miles max range
+INITIAL_FUEL = 20.0  # 200 miles initial range (40% of tank)
 
 
 def _node(mile, price=None, kind="station", name="Station", lat=0.0, lon=0.0):
@@ -143,13 +144,16 @@ class CalculateRequiredFuelTests(TestCase):
 
 class SimulateFuelJourneyTests(TestCase):
     def test_short_route_no_stops_needed(self):
-        """Route is 300 miles; vehicle range is 500. No purchases required."""
+        """Route is 150 miles; initial range is 200. No purchases required."""
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(300, kind="end", name="End"),
+            _node(150, kind="end", name="End"),
         )
         result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
         )
         self.assertEqual(len(result.purchases), 0)
         self.assertEqual(result.total_cost_usd, 0.0)
@@ -157,82 +161,91 @@ class SimulateFuelJourneyTests(TestCase):
 
     def test_partial_fill_for_cheaper_station(self):
         """
-        Start -> A(400,$4.00) -> B(600,$3.00) -> End(900).
+        Start -> A(100,$4.00) -> B(250,$3.00) -> End(400).
         At A, a cheaper station B exists ahead, so we buy only enough for B.
         At B, no cheaper ahead and end is within range, so buy only enough for end.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(400, 4.0, name="A"),
-            _node(600, 3.0, name="B"),
-            _node(900, kind="end", name="End"),
+            _node(100, 4.0, name="A"),
+            _node(250, 3.0, name="B"),
+            _node(400, kind="end", name="End"),
         )
         result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
         )
-        # Start -> A: travel 400 mi, use 40 gal, arrive with 10 gal.
-        # At A: need 200 mi to B = 20 gal, have 10, buy 10 gal @ $4.00
-        # A -> B: travel 200 mi, use 20 gal, arrive with 0 gal.
-        # At B: need 300 mi to end = 30 gal, have 0, buy 30 gal @ $3.00
+        # Start -> A: travel 100 mi, use 10 gal, arrive with 10 gal.
+        # At A: need 150 mi to B = 15 gal, have 10, buy 5 gal @ $4.00
+        # A -> B: travel 150 mi, use 15 gal, arrive with 0 gal.
+        # At B: need 150 mi to end = 15 gal, have 0, buy 15 gal @ $3.00
         self.assertEqual(len(result.purchases), 2)
 
         p_a = result.purchases[0]
         self.assertEqual(p_a.station_name, "A")
-        self.assertEqual(p_a.gallons, 10.0)
-        self.assertEqual(p_a.cost_usd, 40.0)
+        self.assertEqual(p_a.gallons, 5.0)
+        self.assertEqual(p_a.cost_usd, 20.0)
         self.assertEqual(p_a.reason, "partial_fill_for_cheaper_station")
 
         p_b = result.purchases[1]
         self.assertEqual(p_b.station_name, "B")
-        self.assertEqual(p_b.gallons, 30.0)
-        self.assertEqual(p_b.cost_usd, 90.0)
+        self.assertEqual(p_b.gallons, 15.0)
+        self.assertEqual(p_b.cost_usd, 45.0)
         self.assertEqual(p_b.reason, "partial_fill_for_end")
 
-        self.assertEqual(result.total_gallons_purchased, 40.0)
-        self.assertEqual(result.total_cost_usd, 130.0)
+        self.assertEqual(result.total_gallons_purchased, 20.0)
+        self.assertEqual(result.total_cost_usd, 65.0)
 
     def test_partial_fill_for_end(self):
         """
-        Start -> A(400,$4.00) -> End(600).
+        Start -> A(100,$4.00) -> End(250).
         No station is cheaper than A ahead, and the end is within full-tank range,
         so at A we buy only enough to reach the end (not a full tank).
         """
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(400, 4.0, name="A"),
-            _node(600, kind="end", name="End"),
+            _node(100, 4.0, name="A"),
+            _node(250, kind="end", name="End"),
         )
         result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
         )
-        # Start -> A: 400 mi, use 40 gal, arrive with 10 gal.
-        # At A: need 200 mi to end = 20 gal, have 10, buy 10 gal @ $4.00
+        # Start -> A: 100 mi, use 10 gal, arrive with 10 gal.
+        # At A: need 150 mi to end = 15 gal, have 10, buy 5 gal @ $4.00
         self.assertEqual(len(result.purchases), 1)
         p = result.purchases[0]
         self.assertEqual(p.station_name, "A")
-        self.assertEqual(p.gallons, 10.0)
-        self.assertEqual(p.cost_usd, 40.0)
+        self.assertEqual(p.gallons, 5.0)
+        self.assertEqual(p.cost_usd, 20.0)
         self.assertEqual(p.reason, "partial_fill_for_end")
 
     def test_full_fill_when_no_cheaper_ahead_and_end_out_of_range(self):
         """
-        Start -> A(400,$4.00) -> B(800,$5.00) -> End(1000).
-        At A, B is more expensive and end is beyond range, so we fill to full.
-        At B, end is within range, so we buy only enough for end.
+        Start -> A(100,$4.00) -> B(450,$5.00) -> End(700).
+        At A, B is more expensive and end is beyond full-tank range, so we fill to full.
+        At B, end is beyond range, so we fill to full again.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(400, 4.0, name="A"),
-            _node(800, 5.0, name="B"),
-            _node(1000, kind="end", name="End"),
+            _node(100, 4.0, name="A"),
+            _node(450, 5.0, name="B"),
+            _node(700, kind="end", name="End"),
         )
         result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
         )
-        # Start -> A: 400 mi, use 40 gal, arrive with 10 gal.
-        # At A: no cheaper ahead, end out of range. Fill full: buy 40 gal @ $4.00
-        # A -> B: 400 mi, use 40 gal, arrive with 10 gal.
-        # At B: end is 200 mi away, within range. Buy 10 gal @ $5.00
+        # Start -> A: 100 mi, use 10 gal, arrive with 10 gal.
+        # At A: no cheaper ahead, end at 700 is 600 mi away (> 500 range). Fill full: buy 40 gal @ $4.00
+        # A -> B: 350 mi, use 35 gal, arrive with 15 gal.
+        # At B: end at 700 is 250 mi away, within 500 range. Need 25, have 15, buy 10 gal @ $5.00
         self.assertEqual(len(result.purchases), 2)
 
         p_a = result.purchases[0]
@@ -250,99 +263,112 @@ class SimulateFuelJourneyTests(TestCase):
         self.assertEqual(result.total_gallons_purchased, 50.0)
         self.assertEqual(result.total_cost_usd, 210.0)
 
-    def test_fallback_reaches_station_slightly_beyond_range(self):
-        """
-        Start -> A(520,$4.00) -> End(1000).
-        A is 520 miles away, beyond the normal 500-mile range but within the
-        50-mile fallback buffer. The algorithm should stretch to reach it.
-        """
-        nodes = (
-            _node(0, kind="start", name="Start"),
-            _node(520, 4.0, name="A"),
-            _node(1000, kind="end", name="End"),
-        )
-        result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
-        )
-        # Start -> A: 520 mi, consume 52 gal (only have 50, fallback allows it).
-        # Arrive at A with 0 gal.
-        # At A: end is 480 mi away, within 500. Buy 48 gal @ $4.00.
-        self.assertEqual(len(result.purchases), 1)
-        p = result.purchases[0]
-        self.assertEqual(p.station_name, "A")
-        self.assertEqual(p.gallons, 48.0)
-        self.assertEqual(p.cost_usd, 192.0)
-        self.assertEqual(p.reason, "partial_fill_for_end")
-
-    def test_fallback_buffer_exceeded_still_raises(self):
-        """
-        Start -> A(600,$4.00) -> End(1200).
-        A is 600 miles away, beyond the 550-mile fallback buffer. Should raise.
-        """
-        nodes = (
-            _node(0, kind="start", name="Start"),
-            _node(600, 4.0, name="A"),
-            _node(1200, kind="end", name="End"),
-        )
-        with self.assertRaises(ValueError) as ctx:
-            simulate_fuel_journey(
-                nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
-            )
-        self.assertIn("Nearest station is 600.0 miles ahead", str(ctx.exception))
-
     def test_unreachable_route_raises(self):
         """
-        Start -> A(600,$4.00) -> End(1200).
-        A is 600 miles away, beyond the 500-mile range. Should raise ValueError.
+        Start -> A(260,$4.00) -> End(500).
+        A is 260 miles away, beyond the 250-mile fallback limit (200 initial + 50 buffer).
+        Should raise ValueError.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(600, 4.0, name="A"),
-            _node(1200, kind="end", name="End"),
+            _node(260, 4.0, name="A"),
+            _node(500, kind="end", name="End"),
         )
         with self.assertRaises(ValueError):
             simulate_fuel_journey(
-                nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+                nodes,
+                tank_capacity_gallons=TANK_GALLONS,
+                mpg=MPG,
+                initial_fuel_gallons=INITIAL_FUEL,
             )
 
     def test_multiple_hops_varying_prices(self):
         """
-        Start -> A(200,$4.00) -> B(450,$3.50) -> C(700,$2.50) -> End(1100).
+        Start -> A(100,$4.00) -> B(200,$3.50) -> C(350,$2.50) -> End(500).
         Greedy look-ahead should minimise cost by deferring purchases to C.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
-            _node(200, 4.0, name="A"),
-            _node(450, 3.5, name="B"),
-            _node(700, 2.5, name="C"),
-            _node(1100, kind="end", name="End"),
+            _node(100, 4.0, name="A"),
+            _node(200, 3.5, name="B"),
+            _node(350, 2.5, name="C"),
+            _node(500, kind="end", name="End"),
         )
         result = simulate_fuel_journey(
-            nodes, tank_capacity_gallons=TANK_GALLONS, mpg=MPG
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
         )
         # Start -> B: cheapest reachable from start is B at $3.50 (A is $4.00).
-        # Travel 450 mi, use 45 gal, arrive with 5 gal.
-        # At B: first cheaper is C at 700 ($2.50 < $3.50).
-        # Need 250 mi = 25 gal, have 5, buy 20 gal @ $3.50.
-        # B -> C: 250 mi, use 25 gal, arrive with 0 gal.
-        # At C: no cheaper ahead. End is 400 mi away, within range.
-        # Need 40 gal, have 0, buy 40 gal @ $2.50.
+        # B is exactly 200 mi away, need 20 gal, have 20. Arrive with 0.
+        # At B: first cheaper is C at 350 ($2.50 < $3.50).
+        # Need 150 mi = 15 gal, have 0, buy 15 gal @ $3.50.
+        # B -> C: 150 mi, use 15 gal, arrive with 0 gal.
+        # At C: no cheaper ahead. End is 150 mi away, within range.
+        # Need 15 gal, have 0, buy 15 gal @ $2.50.
         self.assertEqual(len(result.purchases), 2)
 
         p_b = result.purchases[0]
         self.assertEqual(p_b.station_name, "B")
-        self.assertEqual(p_b.gallons, 20.0)
-        self.assertEqual(p_b.cost_usd, 70.0)
+        self.assertEqual(p_b.gallons, 15.0)
+        self.assertEqual(p_b.cost_usd, 52.5)
         self.assertEqual(p_b.reason, "partial_fill_for_cheaper_station")
 
         p_c = result.purchases[1]
         self.assertEqual(p_c.station_name, "C")
-        self.assertEqual(p_c.gallons, 40.0)
-        self.assertEqual(p_c.cost_usd, 100.0)
+        self.assertEqual(p_c.gallons, 15.0)
+        self.assertEqual(p_c.cost_usd, 37.5)
         self.assertEqual(p_c.reason, "partial_fill_for_end")
 
-        self.assertEqual(result.total_gallons_purchased, 60.0)
-        self.assertEqual(result.total_cost_usd, 170.0)
+        self.assertEqual(result.total_gallons_purchased, 30.0)
+        self.assertEqual(result.total_cost_usd, 90.0)
+
+    def test_fallback_reaches_station_slightly_beyond_range(self):
+        """
+        Start -> A(220,$4.00) -> End(400).
+        A is 220 miles away, beyond the normal 200-mile initial range but within the
+        50-mile fallback buffer. The algorithm should stretch to reach it.
+        """
+        nodes = (
+            _node(0, kind="start", name="Start"),
+            _node(220, 4.0, name="A"),
+            _node(400, kind="end", name="End"),
+        )
+        result = simulate_fuel_journey(
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
+        )
+        # Start -> A: 220 mi, consume 22 gal (only have 20, fallback allows it).
+        # Arrive at A with 0 gal.
+        # At A: end is 180 mi away. Need 18 gal, have 0, buy 18 gal @ $4.00.
+        self.assertEqual(len(result.purchases), 1)
+        p = result.purchases[0]
+        self.assertEqual(p.station_name, "A")
+        self.assertEqual(p.gallons, 18.0)
+        self.assertEqual(p.cost_usd, 72.0)
+        self.assertEqual(p.reason, "partial_fill_for_end")
+
+    def test_fallback_buffer_exceeded_still_raises(self):
+        """
+        Start -> A(300,$4.00) -> End(500).
+        A is 300 miles away, beyond the 250-mile fallback buffer. Should raise.
+        """
+        nodes = (
+            _node(0, kind="start", name="Start"),
+            _node(300, 4.0, name="A"),
+            _node(500, kind="end", name="End"),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            simulate_fuel_journey(
+                nodes,
+                tank_capacity_gallons=TANK_GALLONS,
+                mpg=MPG,
+                initial_fuel_gallons=INITIAL_FUEL,
+            )
+        self.assertIn("Nearest station is 300.0 miles ahead", str(ctx.exception))
 
 
 class BuildRouteNodesTests(TestCase):

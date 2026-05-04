@@ -138,6 +138,7 @@ FUEL_PRICES_CSV = BASE_DIR / "data" / "fuel_prices.csv"
 OSRM_BASE_URL = "https://router.project-osrm.org"
 VEHICLE_MPG = 10.0
 VEHICLE_RANGE_MILES = 500.0
+VEHICLE_INITIAL_FUEL_GALLONS = 20.0  # 40% of 50-gallon tank
 
 # Optional: set TRIPFUEL_NOMINATIM_EMAIL in environment for Nominatim courtesy usage policy.
 NOMINATIM_EMAIL = os.environ.get("TRIPFUEL_NOMINATIM_EMAIL")

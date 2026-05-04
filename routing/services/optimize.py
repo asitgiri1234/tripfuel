@@ -154,6 +154,7 @@ def simulate_fuel_journey(
     *,
     tank_capacity_gallons: float,
     mpg: float,
+    initial_fuel_gallons: float,
 ) -> OptimizeResult:
     """
     Greedy look-ahead fuel simulation.
@@ -172,7 +173,7 @@ def simulate_fuel_journey(
         return OptimizeResult(0.0, 0.0, tuple(), tuple(nodes))
 
     current_index = 0
-    fuel_gallons = float(tank_capacity_gallons)  # vehicle starts with a full tank
+    fuel_gallons = float(initial_fuel_gallons)
     purchases: List[FuelPurchase] = []
 
     end_idx = len(nodes) - 1
@@ -307,7 +308,7 @@ def simulate_fuel_journey(
 
                 if nearest_forward_idx is not None:
                     max_range_with_fallback = (
-                        tank_capacity_gallons * mpg + FALLBACK_BUFFER_MILES
+                        fuel_gallons * mpg + FALLBACK_BUFFER_MILES
                     )
                     if nearest_forward_distance <= max_range_with_fallback + EPS:
                         logger.warning(
@@ -347,8 +348,9 @@ def simulate_fuel_journey(
 
     expected_fuel = end_mile / mpg
     logger.info(
-        "[FUEL DEBUG] total_distance=%.2f mi | expected_fuel=%.3f gal | "
+        "[FUEL DEBUG] initial=%.3f | total_distance=%.2f mi | expected_fuel=%.3f gal | "
         "total_gallons_purchased=%.3f gal",
+        initial_fuel_gallons,
         end_mile,
         expected_fuel,
         total_gallons,
@@ -367,10 +369,12 @@ def optimize_fuel_stops(
     *,
     max_range_miles: float = 500.0,
     mpg: float = 10.0,
+    initial_fuel_gallons: float = 20.0,
 ) -> OptimizeResult:
     tank_capacity = float(max_range_miles) / float(mpg)
     return simulate_fuel_journey(
         nodes,
         tank_capacity_gallons=tank_capacity,
         mpg=float(mpg),
+        initial_fuel_gallons=initial_fuel_gallons,
     )
