@@ -127,10 +127,13 @@ class TripFuelRouteView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        geojson = self._build_geojson(coords, opt.purchases)
+        # Filter out any stops where no fuel was actually purchased.
+        valid_purchases = [p for p in opt.purchases if p.gallons > 0]
 
-        gallons_from_purchases = float(opt.total_gallons_purchased)
-        total_cost = float(opt.total_cost_usd)
+        geojson = self._build_geojson(coords, valid_purchases)
+
+        gallons_from_purchases = float(sum(p.gallons for p in valid_purchases))
+        total_cost = float(sum(p.cost_usd for p in valid_purchases))
 
         # Driving fuel consumption for whole trip at stated MPG (reporting).
         trip_gallons_total = distance_miles / float(settings.VEHICLE_MPG)
@@ -166,7 +169,7 @@ class TripFuelRouteView(APIView):
                         "cost_usd": p.cost_usd,
                         "reason": p.reason,
                     }
-                    for p in opt.purchases
+                    for p in valid_purchases
                 ],
             },
             "summary": {
@@ -174,7 +177,7 @@ class TripFuelRouteView(APIView):
                 "total_cost_usd": total_cost,
                 "total_gallons": gallons_from_purchases,
                 "initial_fuel_gallons": float(settings.VEHICLE_INITIAL_FUEL_GALLONS),
-                "number_of_stops": len(opt.purchases),
+                "number_of_stops": len(valid_purchases),
             },
             "fuel_stops": [
                 {
@@ -185,7 +188,7 @@ class TripFuelRouteView(APIView):
                     "cost": p.cost_usd,
                     "reason": p.reason,
                 }
-                for p in opt.purchases
+                for p in valid_purchases
             ],
             "map": {
                 "geojson": geojson,
