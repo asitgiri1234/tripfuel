@@ -263,24 +263,30 @@ class SimulateFuelJourneyTests(TestCase):
         self.assertEqual(result.total_gallons_purchased, 50.0)
         self.assertEqual(result.total_cost_usd, 210.0)
 
-    def test_unreachable_route_raises(self):
+    def test_unreachable_route_uses_final_fallback(self):
         """
         Start -> A(260,$4.00) -> End(500).
-        A is 260 miles away, beyond the 250-mile fallback limit (200 initial + 50 buffer).
-        Should raise ValueError.
+        A is 260 miles away, found via the 80-mile staged buffer (200 + 80 = 280).
+        The algorithm must never crash.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
             _node(260, 4.0, name="A"),
             _node(500, kind="end", name="End"),
         )
-        with self.assertRaises(ValueError):
-            simulate_fuel_journey(
-                nodes,
-                tank_capacity_gallons=TANK_GALLONS,
-                mpg=MPG,
-                initial_fuel_gallons=INITIAL_FUEL,
-            )
+        result = simulate_fuel_journey(
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
+        )
+        # Start -> A: 260 mi, fallback allows it. Arrive with 0.
+        # At A: end is 240 mi away. Need 24 gal. Buy 24 gal @ $4.00.
+        self.assertEqual(len(result.purchases), 1)
+        p = result.purchases[0]
+        self.assertEqual(p.station_name, "A")
+        self.assertEqual(p.gallons, 24.0)
+        self.assertEqual(p.cost_usd, 96.0)
 
     def test_multiple_hops_varying_prices(self):
         """
@@ -351,24 +357,48 @@ class SimulateFuelJourneyTests(TestCase):
         self.assertEqual(p.cost_usd, 72.0)
         self.assertEqual(p.reason, "partial_fill_for_end")
 
-    def test_fallback_buffer_exceeded_still_raises(self):
+    def test_fallback_uses_max_100mi_buffer(self):
         """
         Start -> A(300,$4.00) -> End(500).
-        A is 300 miles away, beyond the 250-mile fallback buffer. Should raise.
+        A is 300 miles away, found via the 100-mile staged buffer (200 + 100 = 300).
+        The algorithm must never crash.
         """
         nodes = (
             _node(0, kind="start", name="Start"),
             _node(300, 4.0, name="A"),
             _node(500, kind="end", name="End"),
         )
-        with self.assertRaises(ValueError) as ctx:
-            simulate_fuel_journey(
-                nodes,
-                tank_capacity_gallons=TANK_GALLONS,
-                mpg=MPG,
-                initial_fuel_gallons=INITIAL_FUEL,
-            )
-        self.assertIn("Nearest station is 300.0 miles ahead", str(ctx.exception))
+        result = simulate_fuel_journey(
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
+        )
+        # Start -> A: 300 mi, fallback allows it. Arrive with 0.
+        # At A: end is 200 mi away. Need 20 gal. Buy 20 gal @ $4.00.
+        self.assertEqual(len(result.purchases), 1)
+        p = result.purchases[0]
+        self.assertEqual(p.station_name, "A")
+        self.assertEqual(p.gallons, 20.0)
+        self.assertEqual(p.cost_usd, 80.0)
+
+    def test_no_stations_at_all_goes_to_end(self):
+        """
+        Start -> End(500).
+        No stations exist. The algorithm should still complete the trip.
+        """
+        nodes = (
+            _node(0, kind="start", name="Start"),
+            _node(500, kind="end", name="End"),
+        )
+        result = simulate_fuel_journey(
+            nodes,
+            tank_capacity_gallons=TANK_GALLONS,
+            mpg=MPG,
+            initial_fuel_gallons=INITIAL_FUEL,
+        )
+        self.assertEqual(len(result.purchases), 0)
+        self.assertEqual(result.total_cost_usd, 0.0)
 
 
 class BuildRouteNodesTests(TestCase):
